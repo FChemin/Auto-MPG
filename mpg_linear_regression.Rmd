@@ -1,0 +1,107 @@
+---
+title: "Auto-MPG_Linear-Regression"
+author: "FChemin"
+date: "September 27, 2016"
+output: 
+        html_document:
+                keep_md: yes
+---
+
+Cet article est une synthèse de l'analyse de la consommation de carburant réalisée précédemment sous Excel. Nous utilisons ici le
+[langage de programmation R](https://fr.wikipedia.org/wiki/R_(langage_de_programmation_et_environnement_statistique)) et [l'IDE RStudio](https://fr.wikipedia.org/wiki/RStudio).
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, fig.path = "figure/Auto_MPG-")
+library(ggplot2)
+library(dplyr)
+```
+
+## Téléchargement et préparation des données
+
+```{r}
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/auto-mpg/auto-mpg.data" ## Adresse Internet où se trouve la base de données
+download.file(url, destfile = "auto-mpg.data", method = "curl") ## Téléchargement du fichier
+df <- read.table(file = "auto-mpg.data", sep = "", dec=".", na.strings = "?") ## Lecture du fichier dans une table
+df <- na.omit(df) ## Suppression des lignes avec valeurs manquantes
+colnames(df) <- c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration", "model.year", "origin", "car name") ## Ajout du nom des colonnes
+head(df, 3) ## Aperçu des 3 premières lignes de la table de données
+str(df) ## Présentation de la structure de la table de données
+```
+
+## Exploration des données
+
+```{r}
+p <- ggplot(df, aes(mpg, weight))
+p + geom_point(aes(size=horsepower), colour="blue", alpha=0.5) + ggtitle("Relation entre mpg, poids et puissance") + labs(x="MPG", y="Poids") + scale_size_area(name="Puissance") ## Premier graphique en bulles
+
+p2 <- ggplot(df, aes(horsepower, weight))
+p2 + geom_point(aes(size=cylinders, colour=cylinders), alpha=0.5) + ggtitle("Relation puissance, poids et cylindrée") + labs(x="Puissance", y="Poids") + scale_size_area(name="Cylindrée") + scale_color_continuous(name="Cylindrée") ## Second graphique en bulles
+
+mpgperorigin <- summarise(group_by(df, origin), mean=mean(mpg)) ## Moyenne de la consommation selon l'origine du véhicule
+mpgperorigin$names <- c("Amérique du Nord", "Europe", "Asie") ## Ajout du nom des zones géographiques
+mpgperorigin <- arrange(mpgperorigin, desc(mean)) ## Arrangement par ordre décroissant
+
+p3 <- ggplot(mpgperorigin, aes(names, mean))
+p3 + geom_bar(stat="identity", fill="light blue", width=.5) + coord_flip() + ggtitle("Miles par gallon selon l'origine géographique") + labs(x="Provenance", y="MPG (moyenne)") ## Graphique en barres
+```
+
+## Régression linéaire multiple
+
+Nous réalisons une première approche de notre modèle en intégrant toutes les variables indépendantes à notre équation sauf le nom de la voiture:
+
+```{r}
+df.reg <- lm(mpg~. -`car name`, data=df)
+summary(df.reg)
+```
+
+La valeur R<sup>2</sup> est égale ici à **0.82**. Nous remarquons aussi que la relation entre la variable *mpg* et les variables *cylinders*, *horsepower* et *acceleration* est non-significative à 95% car **la valeur p de leurs coefficient est supérieure à 0,05**.
+
+Nous supprimons ces variables de notre équation et effectuons une nouvelle régression linéaire:
+
+```{r}
+df.reg2 <- lm(mpg ~ displacement + weight + model.year + origin, data = df)
+summary(df.reg2)
+```
+
+La valeur R<sup>2</sup> est ici aussi égale à **0.82**. Nous observons par contre que la variable *displacement* est moins significative dans cette version de notre équation.
+
+Continuons encore un peu avec une troisième version:
+
+```{r}
+df.reg3 <- lm(mpg ~ weight + model.year + origin, data = df)
+summary(df.reg3)
+```
+
+Cette fois-ci, tous les coefficients ont une **valeur p faible**. L'équation finale de notre modèle peut s'écrire comme suit:
+
+> "mpg = -18.05 - 0.005994 * weight - 0.7571 * model year + 1.15 * origin
+
+## Simulation avec de nouvelles données
+
+```{r}
+model <- df.reg3
+new.df <- data.frame(weight = 2843, origin = 1, model.year = 70) ## Création d'une nouvelle table de données
+predict(model, new.df, interval = "confidence") ## Prévision de la consommation à l'aide de notre modèle
+```
+
+Le résultat obtenu ici signifie que pour les valeurs de poids, d'origine et d'année du modèle, la consommation sera comprise entre 18.3 et 19.8 avec une probabilité de 95%.
+
+Notre intuition concernant l'influence du **poids** sur la consommation du véhicule était donc fondée et nous avons également découvert l'importance de l'**année de fabrication** et de l'**origine** du modèle sur sa consommation.
+
+## Création d'un graphique final
+
+```{r}
+df$model <- predict(model, newdata = df, interval = "confidence")
+
+g <- ggplot(df)
+g <- g + geom_point(aes(x=mpg, y=model[,1]), size=2, colour="blue")
+g <- g + geom_smooth(data=df, aes(x=mpg, y=model[,1], ymin=model[,2], ymax=model[,3]), size=1, colour="red", stat="smooth")
+g <- g + labs(title = "Modélisation de la Consommation de Carburant", x = "MPG", y="Modèle")
+g
+```
+
+## Sources
+
+> Lichman, M. (2013). UCI Machine Learning Repository (http://archive.ics.uci.edu/ml).
+
+> Irvine, CA: University of California, School of Information and Computer Science.
